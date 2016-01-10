@@ -1,0 +1,161 @@
+----------- REVIEW 1 -----------
+
+This paper describes composition/exponentiation of stencils, an
+optimization technique to accelerate stencil updates. Experiments were
+carried out on ARM Cortex A7/A15 (big.LITTLE) and Haswell CPUs. The
+optimization turned out to be most effective in the multi-threaded
+case with simpler stencils (1D, 2D). Single-threaded runs often
+produced slower code, especially with 2D and 3D stencils. Energy
+consumption was measured along with computation time and broken down
+into contributions from core, memory etc. on the ARM
+system. Generally, energy consumption correlated with execution time
+in the expected way.
+
+The good thing about this work is that the authors describe in
+sufficient detail (even a little too thorough for my taste). If the
+obvious rough edges (that the authors have obviously recognized
+themselves) are removed, the paper will be reasonably well written.
+
+My main point of criticism is that the paper ignores all the related
+work on stencil optimizations that has been done in the last 10-15
+years. Even the specific optimization they describe is very similar to
+DOI: 10.1145/2751205.2751223. There is also a complete lack of
+understanding concerning the performance properties and hardware
+requirements of stencil updates, and there is no performance model,
+not even a cursory one.
+
+Detailed comments:
+
+- Related work section is missing (see above)
+
+- The term "computational cost" is used for arithmetic as well as for
+  memory operations, which is contrary to common usage.
+
+- Stencil exponentiation as described in the paper is a variant of
+  temporal blocking, since it performs two updates per grid point for
+  the same memory traffic. The authors note that the result cannot be
+  written back to the source array a[], but this is exactly what other
+  temporal blocking techniques achieve, thereby saving 1/3 of the
+  memory traffic (i.e., the write-allocate on the target array). See,
+  e.g., DOI:10.1109/COMPSAC.2009.82. One should also stress that the
+  method as described tends to blow up the inner loop kernel. Even
+  with the simple 3D stencil the kernel becomes so complex that a
+  slowdown is observed for single-threaded runs. This can be explained
+  by suitable performance models as well. Hence, the method described
+  is restricted to "simple" kernels.
+
+- The impact of the optimization on the SIMD vectorization and other
+  optimizations done by the compiler is totally ignored. If the
+  compiler cannot produce good code (no SIMD, bad register scheduling
+  due to complex kernel, etc.), performance will go down at least in
+  the single-threaded case and probably also in the full-chip
+  case. This makes runtime and energy consumption measurements
+  useless, since the main influence factor is the compiler and not the
+  hardware.
+
+- "Energy" and "power" are used as synonyms, which is wrong.
+
+- Sect. 3.2: It is not true that performance properties of stencil
+  algorithms cannot be modeled analytically. Admittedly the modeling
+  is more difficult on ARM than on Intel since the former exposes more
+  bottlenecks, but a simple, textbook-level Roofline analysis is the
+  least one may expect. This kind of modeling has been common in HPC
+  for more than 20 years.
+
+- Sect. 3.2.: The number of READs and WRITEs in the kernel is of
+ secondary importance. What counts, at least in cases where simple
+ modeling approaches work, is the actual memory traffic. Given
+ appropriate cache and problem sizes, the code balance for all of the
+ three stencils described in the paper is 24 (12) bytes per update in
+ DP (SP). These numbers go down by a factor of 2 when exponentiation
+ is applied. At least in case of Hornet (Haswell CPU), all "simple"
+ stencils should be able to saturate the memory bandwidth. It is hard
+ to figure out if they do, because (1) the relevant data for Hornet
+ [problem sizes, iterations] is missing in Table 7 and (2) performance
+ results are given in seconds, which makes it really hard to get down
+ to testable performance metrics (e.g., updates per second) without a
+ pocket calculator. Analysis of stencil algorithms using simple data
+ transfer models have been common knowledge for a long time (see,
+ e.g., the paper by Leopold in the references, !  and DOI:
+ 10.1145/2751205.2751240 for a recent analysis, but there are many,
+ many more).
+
+- Tables 8/9/10: Why are the hardware details of the systems given,
+  but not used in the analysis? E.g., cache sizes and memory
+  bandwidths are crucial for understanding stencils.
+
+- Sect. 4.2.: tests were run in sequential and multi-threaded mode,
+  but no information is given concerning the parallelization
+  method. Was OpenMP used? Which loops were parallelized? What was the
+  loop scheduling used? Was NUMA placement done properly? Affinity
+  settings?
+
+- Energy consumption correlates strongly with runtime if the same
+  hardware is used. Apart from some very general comments concerning
+  the energy consumption of memory vs. CPUs, the paper does not
+  provide any novelty here. The interplay between code optimizations,
+  parallelism, clock speed, etc., has been the subject of intense
+  research in recent years, but none of those insights are used or
+  referred to. Especially in a situation where lower energy leads to
+  longer execution time, more elaborate metrics such as the
+  energy-delay product deserve at least some comment.
+
+- Sect. 4.3.: The results section is a chain of comments describing
+  what is already visible in the figures, without any attempt for
+  interpretation.
+
+- References: Many author names seem to be broken.
+
+
+
+----------- REVIEW 2 -----------
+
+This paper is based on a simple idea consisting of combining stencil
+kernels that are executed serially or iteratively into one kernel,
+thus reducing the number of iterations and arithmetic
+operations. Execution time -- and hence energy consumption --
+reductions are observed on stencil codes implementing a heat equation
+in 1, 2 and 3 dimensions.
+
+I have many problems with this paper.
+
+1. First, a lot of references are missing although there is a huge
+literature on loop optimizations, and particularly on the optimization
+of stencil codes. See for example:
+
+Uday Bondhugula, Albert Hartono, J. Ramanujam, and
+P. Sadayappan. 2008. A practical automatic polyhedral parallelizer and
+locality optimizer. In PLDI ’08. ACM, 101–113.
+
+Ravi Teja Mullapudi, Vinay Vasista, and Uday
+Bondhugula. 2015. PolyMage: Automatic Optimization for Image
+Processing Pipelines. In Proceedings of the Twentieth International
+Conference on Architectural Support for Programming Languages and
+Operating Systems (ASPLOS ’15). ACM, New York, NY, USA, 429–443.
+
+Yuan Tang, Rezaul Alam Chowdhury, Bradley C. Kuszmaul, Chi-Keung Luk,
+and Charles E. Leiserson. 2011. The Pochoir Stencil Compiler. In
+Proceedings of the Twenty-third Annual ACM Symposium on Parallelism in
+Algorithms and Architectures (SPAA ’11). ACM, New York, NY, USA,
+117–128.
+
+2. When transforming data-intensive loops, a major issue is related to
+memory accesses, data locality and data reuse. Nothing in the paper
+addresses this issue that has a major impact on performance (cache
+misses, ...). When composing stencil kernels, there is obviously an
+impact on data locality.
+
+3. The proposed code transformation is not automatic, although the
+authors made its automation as a perspective. However, what is
+proposed can mostly be already automatically generated using
+well-known loop transformations as loop unrolling (unroll-and-jam) and
+loop fusion.
+
+4. The transformed codes should be compared to codes optimized using
+other techniques, as tiling or unrolling. The best would be to make a
+comparison with codes optimized by Pluto
+(http://pluto-compiler.sourceforge.net).
+
+5. There is a lot of "TODO" paragraphs remaining in the paper, which
+is at least surprising for a submitted paper. Moreover, many notations
+are quite ugly (a[], c[], ...) and useless.
